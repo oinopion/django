@@ -3,8 +3,9 @@ from __future__ import unicode_literals
 from datetime import datetime
 import unittest
 
-from django.core.paginator import (Paginator, EmptyPage, InvalidPage,
-    PageNotAnInteger)
+from django.core.paginator import (
+    Paginator, EmptyPage, InvalidPage, PageNotAnInteger, NoCountPaginator
+)
 from django.test import TestCase
 from django.utils import six
 
@@ -308,3 +309,71 @@ class ModelPaginationTests(TestCase):
         )
         # After __getitem__ is called, object_list is a list
         self.assertIsInstance(p.object_list, list)
+
+
+class NoCountPaginatorTest(TestCase):
+    def test_pages_no_orphans(self):
+        ten = ExplodingList(range(1, 11))
+        tests = [
+            (1, 1, 1, 1, [1]),
+            (1, 2, 2, 2, [2]),
+            (1, 10, 10, 10, [10]),
+            (2, 1, 1, 2, [1, 2]),
+            (2, 5, 9, 10, [9, 10]),
+            (10, 1, 1, 10, range(1, 11)),
+        ]
+        for per_page, num, start, end, objects in tests:
+            paginator = NoCountPaginator(ten, per_page)
+            page = paginator.page(num)
+            self.assertEqual(
+                (start, end),
+                (page.start_index(), page.end_index())
+            )
+            self.assertEqual(objects, page.object_list)
+
+    def test_pages_with_orphans(self):
+        ten = ExplodingList(range(1, 11))
+        tests = [
+            (1, 1, 1, 1, 1, [1]),
+            (1, 1, 9, 9, 10, [9, 10]),
+            (5, 4, 1, 1, 5, [1, 2, 3, 4, 5]),
+            (5, 4, 2, 6, 10, [6, 7, 8, 9, 10]),
+            (4, 4, 2, 5, 10, [5, 6, 7, 8, 9, 10]),
+            (5, 5, 1, 1, 10, ten),
+            (8, 5, 1, 1, 10, ten),
+        ]
+        for per_page, orphans, num, start, end, objects in tests:
+            paginator = NoCountPaginator(ten, per_page, orphans=orphans)
+            page = paginator.page(num)
+            self.assertEqual(
+                (start, end),
+                (page.start_index(), page.end_index())
+            )
+            self.assertEqual(objects, page.object_list)
+
+    def test_empty_pages(self):
+        ten = ExplodingList(range(1, 11))
+        tests = [
+            ([], 1, 0, False, 1),
+            ([], 1, 0, False, 2),
+            ([], 1, 5, False, 1),
+            ([], 1, 0, True, 2),
+            (ten, 10, 0, False, 2),
+            (ten, 10, 0, True, 2),
+            (ten, 10, 10, True, 2),
+        ]
+        for objects_list, per_page, orphans, allow_empty, page in tests:
+            paginator = NoCountPaginator(
+                objects_list, per_page, orphans, allow_empty)
+            self.assertRaises(EmptyPage, paginator.page, page)
+
+
+class ExplodingList(list):
+    """
+    This is a list that pretends to have count() method.
+    However, calling count will raise AssertionError.
+    """
+
+    def count(self):
+        raise AssertionError('Called count when asked not to.')
+

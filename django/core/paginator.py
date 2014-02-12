@@ -63,7 +63,8 @@ class Paginator(object):
         """
         return Page(*args, **kwargs)
 
-    def _get_count(self):
+    @property
+    def count(self):
         """
         Returns the total number of objects, across all pages.
         """
@@ -76,9 +77,9 @@ class Paginator(object):
                 # (i.e. is of type list).
                 self._count = len(self.object_list)
         return self._count
-    count = property(_get_count)
 
-    def _get_num_pages(self):
+    @property
+    def num_pages(self):
         """
         Returns the total number of pages.
         """
@@ -89,15 +90,14 @@ class Paginator(object):
                 hits = max(1, self.count - self.orphans)
                 self._num_pages = int(ceil(hits / float(self.per_page)))
         return self._num_pages
-    num_pages = property(_get_num_pages)
 
-    def _get_page_range(self):
+    @property
+    def page_range(self):
         """
         Returns a 1-based range of pages for iterating through within
         a template for loop.
         """
         return range(1, self.num_pages + 1)
-    page_range = property(_get_page_range)
 
 
 QuerySetPaginator = Paginator   # For backwards-compatibility.
@@ -159,3 +159,59 @@ class Page(collections.Sequence):
         if self.number == self.paginator.num_pages:
             return self.paginator.count
         return self.number * self.paginator.per_page
+
+
+class NoCountPaginator(Paginator):
+    @property
+    def count(self):
+        raise NotImplementedError("Refusing to count in NoCountPaginator")
+
+    def validate_number(self, number):
+        """
+        Validates the given 1-based page number.
+        """
+        try:
+            number = int(number)
+        except (TypeError, ValueError):
+            raise PageNotAnInteger('That page number is not an integer')
+        if number < 1:
+            raise EmptyPage('That page number is less than 1')
+        return number
+
+    @property
+    def num_pages(self):
+        return self._num_pages
+
+    def page(self, number):
+        number = self.validate_number(number)
+        bottom = (number - 1) * self.per_page
+        top = bottom + self.per_page
+        over_the_top = top + self.orphans + 1
+
+        objects = list(self.object_list[bottom:over_the_top])
+        objects_count = len(objects)
+
+        page_is_empty = objects_count <= self.orphans
+        empty_page_allowed = (number == 1 and self.allow_empty_first_page)
+        if page_is_empty and not empty_page_allowed:
+            raise EmptyPage("Empty page")
+
+        has_more_pages = objects_count > (self.per_page + self.orphans)
+        if has_more_pages:
+            self._num_pages = number + 1
+            objects = objects[:self.per_page]
+        else:
+            # last page
+            self._num_pages = number
+        return self._get_page(objects, number, self)
+
+    def _get_page(self, *args, **kwargs):
+        return NoCountPage(*args, **kwargs)
+
+
+class NoCountPage(Page):
+    def start_index(self):
+        return (self.paginator.per_page * (self.number - 1)) + 1
+
+    def end_index(self):
+        return self.start_index() + len(self) - 1
