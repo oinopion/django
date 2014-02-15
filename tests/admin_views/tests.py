@@ -2699,7 +2699,7 @@ class AdminCustomQuerysetTest(TestCase):
             self.assertEqual(resp.context['selection_note'], '0 of 2 selected')
             self.assertEqual(resp.context['selection_note_all'], 'All 2 selected')
         # here one more count(*) query will run, because filters were applied
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             extra = {'q': 'not_in_name'}
             resp = self.client.get('/test_admin/admin/admin_views/person/', extra)
             self.assertEqual(resp.context['selection_note'], '0 of 0 selected')

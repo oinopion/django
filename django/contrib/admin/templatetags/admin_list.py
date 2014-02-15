@@ -24,6 +24,11 @@ from django.template.context import Context
 register = Library()
 
 DOT = '.'
+NEXT = 'next'
+
+
+class Next(int):
+    pass
 
 
 @register.simple_tag
@@ -36,10 +41,18 @@ def paginator_number(cl, i):
     elif i == cl.page_num:
         return format_html('<span class="this-page">{0}</span> ', i + 1)
     else:
-        return format_html('<a href="{0}"{1}>{2}</a> ',
-                           cl.get_query_string({PAGE_VAR: i}),
-                           mark_safe(' class="end"' if i == cl.paginator.num_pages - 1 else ''),
-                           i + 1)
+        if isinstance(i, Next):
+            text = 'Next'
+        else:
+            text = i + 1
+        query_string = cl.get_query_string({PAGE_VAR: i})
+        css_class = ' class="end"' if i == cl.paginator.num_pages - 1 else ''
+        return format_html(
+            '<a href="{0}"{1}>{2}</a> ',
+            query_string,
+            mark_safe(css_class),
+            text
+        )
 
 
 @register.inclusion_tag('admin/pagination.html')
@@ -48,6 +61,7 @@ def pagination(cl):
     Generates the series of links to the pages in a paginated list.
     """
     paginator, page_num = cl.paginator, cl.page_num
+    no_count_pagination = cl.no_count_pagination
 
     pagination_required = (not cl.show_all or not cl.can_show_all) and cl.multi_page
     if not pagination_required:
@@ -77,10 +91,13 @@ def pagination(cl):
                 page_range.extend(range(paginator.num_pages - ON_ENDS, paginator.num_pages))
             else:
                 page_range.extend(range(page_num + 1, paginator.num_pages))
+        if cl.no_count_pagination and cl.page_num != page_range[-1]:
+            page_range[-1] = Next(page_range[-1])
 
     need_show_all_link = cl.can_show_all and not cl.show_all and cl.multi_page
     return {
         'cl': cl,
+        'no_count_pagination': no_count_pagination,
         'pagination_required': pagination_required,
         'show_all_url': need_show_all_link and cl.get_query_string({ALL_VAR: ''}),
         'page_range': page_range,
@@ -401,7 +418,7 @@ def search_form(cl):
     """
     return {
         'cl': cl,
-        'show_result_count': cl.result_count != cl.full_result_count,
+        'show_result_count': cl.show_result_count,
         'search_var': SEARCH_VAR
     }
 

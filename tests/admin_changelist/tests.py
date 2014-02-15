@@ -184,7 +184,6 @@ class ChangeListTests(TestCase):
                 m.list_filter, m.date_hierarchy, m.search_fields,
                 m.list_select_related, m.list_per_page, m.list_max_show_all, m.list_editable, m)
 
-        cl.get_results(request)
         self.assertIsInstance(cl.paginator, CustomPaginator)
 
     def test_distinct_for_m2m_in_list_filter(self):
@@ -205,8 +204,6 @@ class ChangeListTests(TestCase):
                 m.list_display_links, m.list_filter, m.date_hierarchy,
                 m.search_fields, m.list_select_related, m.list_per_page,
                 m.list_max_show_all, m.list_editable, m)
-
-        cl.get_results(request)
 
         # There's only one Group instance
         self.assertEqual(cl.result_count, 1)
@@ -229,7 +226,6 @@ class ChangeListTests(TestCase):
                 m.search_fields, m.list_select_related, m.list_per_page,
                 m.list_max_show_all, m.list_editable, m)
 
-        cl.get_results(request)
 
         # There's only one Group instance
         self.assertEqual(cl.result_count, 1)
@@ -253,8 +249,6 @@ class ChangeListTests(TestCase):
                 m.search_fields, m.list_select_related, m.list_per_page,
                 m.list_max_show_all, m.list_editable, m)
 
-        cl.get_results(request)
-
         # There's only one Quartet instance
         self.assertEqual(cl.result_count, 1)
 
@@ -276,8 +270,6 @@ class ChangeListTests(TestCase):
                 m.list_display_links, m.list_filter, m.date_hierarchy,
                 m.search_fields, m.list_select_related, m.list_per_page,
                 m.list_max_show_all, m.list_editable, m)
-
-        cl.get_results(request)
 
         # There's only one ChordsBand instance
         self.assertEqual(cl.result_count, 1)
@@ -425,7 +417,6 @@ class ChangeListTests(TestCase):
         cl = ChangeList(request, Child, m.list_display, m.list_display_links,
                 m.list_filter, m.date_hierarchy, m.search_fields,
                 m.list_select_related, m.list_per_page, 200, m.list_editable, m)
-        cl.get_results(request)
         self.assertEqual(len(cl.result_list), 60)
 
         # Test invalid "show all" request (number of total objects over max)
@@ -435,7 +426,6 @@ class ChangeListTests(TestCase):
         cl = ChangeList(request, Child, m.list_display, m.list_display_links,
                 m.list_filter, m.date_hierarchy, m.search_fields,
                 m.list_select_related, m.list_per_page, 30, m.list_editable, m)
-        cl.get_results(request)
         self.assertEqual(len(cl.result_list), 10)
 
     def test_dynamic_list_display_links(self):
@@ -612,12 +602,7 @@ class ChangeListTests(TestCase):
         """
         # instantiating and setting up ChangeList object
         m = GroupAdmin(Group, admin.site)
-        request = self.factory.get('/group/')
-        cl = ChangeList(request, Group, m.list_display,
-                m.list_display_links, m.list_filter, m.date_hierarchy,
-                m.search_fields, m.list_select_related, m.list_per_page,
-                m.list_max_show_all, m.list_editable, m)
-        per_page = cl.list_per_page = 10
+        per_page = m.list_per_page = 10
 
         for page_num, objects_count, expected_page_range in [
             (0, per_page, []),
@@ -632,9 +617,12 @@ class ChangeListTests(TestCase):
             for i in range(objects_count):
                 Group.objects.create(name='test band')
 
+            request = self.factory.get('/group/', {'p': page_num})
+            cl = ChangeList(request, Group, m.list_display,
+                    m.list_display_links, m.list_filter, m.date_hierarchy,
+                    m.search_fields, m.list_select_related, m.list_per_page,
+                    m.list_max_show_all, m.list_editable, m)
             # setting page number and calculating page range
-            cl.page_num = page_num
-            cl.get_results(request)
             real_page_range = pagination(cl)['page_range']
 
             self.assertListEqual(

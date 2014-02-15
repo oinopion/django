@@ -3,14 +3,15 @@ import sys
 import warnings
 
 from django.core.exceptions import SuspiciousOperation, ImproperlyConfigured
-from django.core.paginator import InvalidPage
+from django.core.paginator import InvalidPage, NoCountPaginator
 from django.core.urlresolvers import reverse
 from django.db import models
 from django.db.models.fields import FieldDoesNotExist
 from django.utils import six
 from django.utils.deprecation import RenameMethodsBase
 from django.utils.encoding import force_text
-from django.utils.translation import ugettext, ugettext_lazy
+from django.utils.functional import cached_property
+from django.utils.translation import ugettext, ugettext_lazy, ungettext
 from django.utils.http import urlencode
 
 from django.contrib.admin import FieldListFilter
@@ -64,6 +65,8 @@ class RenameChangeListMethods(RenameMethodsBase):
 
 
 class ChangeList(six.with_metaclass(RenameChangeListMethods)):
+    no_count_pagination = False
+
     def __init__(self, request, model, list_display, list_display_links,
             list_filter, date_hierarchy, search_fields, list_select_related,
             list_per_page, list_max_show_all, list_editable, model_admin):
@@ -102,7 +105,8 @@ class ChangeList(six.with_metaclass(RenameChangeListMethods)):
             self.list_editable = list_editable
         self.query = request.GET.get(SEARCH_VAR, '')
         self.queryset = self.get_queryset(request)
-        self.get_results(request)
+        self.paginator = self.get_paginator(request, self.queryset)
+        self.result_list = self.get_results()
         if self.is_popup:
             title = ugettext('Select %s')
         else:
@@ -137,6 +141,10 @@ class ChangeList(six.with_metaclass(RenameChangeListMethods)):
             if ignored in lookup_params:
                 del lookup_params[ignored]
         return lookup_params
+
+    def get_paginator(self, request, queryset):
+        return self.model_admin.get_paginator(
+            request, queryset, self.list_per_page)
 
     def get_filters(self, request):
         lookup_params = self.get_filters_params()
@@ -208,37 +216,38 @@ class ChangeList(six.with_metaclass(RenameChangeListMethods)):
                 p[k] = v
         return '?%s' % urlencode(sorted(p.items()))
 
-    def get_results(self, request):
-        paginator = self.model_admin.get_paginator(request, self.queryset, self.list_per_page)
-        # Get the number of objects, with admin filters applied.
-        result_count = paginator.count
+    def get_results(self):
+        if self.should_show_all():
+            return self.queryset.all()
+        try:
+            page = self.paginator.page(self.page_num + 1)
+            return page.object_list
+        except InvalidPage:
+            raise IncorrectLookupParameters
 
-        # Get the total number of objects, with no admin filters applied.
-        # Perform a slight optimization:
-        # full_result_count is equal to paginator.count if no filters
-        # were applied
-        if self.get_filters_params() or self.params.get(SEARCH_VAR):
-            full_result_count = self.root_queryset.count()
-        else:
-            full_result_count = result_count
-        can_show_all = result_count <= self.list_max_show_all
-        multi_page = result_count > self.list_per_page
+    @cached_property
+    def result_count(self):
+        return self.paginator.count
 
-        # Get the list of objects to display on this page.
-        if (self.show_all and can_show_all) or not multi_page:
-            result_list = self.queryset._clone()
-        else:
-            try:
-                result_list = paginator.page(self.page_num + 1).object_list
-            except InvalidPage:
-                raise IncorrectLookupParameters
+    @cached_property
+    def full_result_count(self):
+        if self.has_filters_applied():
+            return self.root_queryset.count()
+        return self.result_count
 
-        self.result_count = result_count
-        self.full_result_count = full_result_count
-        self.result_list = result_list
-        self.can_show_all = can_show_all
-        self.multi_page = multi_page
-        self.paginator = paginator
+    @property
+    def multi_page(self):
+        return self.paginator.num_pages > 1
+
+    @property
+    def can_show_all(self):
+        return self.result_count <= self.list_max_show_all
+
+    def should_show_all(self):
+        return self.show_all and self.can_show_all
+
+    def has_filters_applied(self):
+        return self.get_filters_params() or self.params.get(SEARCH_VAR)
 
     def _get_default_ordering(self):
         ordering = []
@@ -419,7 +428,55 @@ class ChangeList(six.with_metaclass(RenameChangeListMethods)):
 
     def url_for_result(self, result):
         pk = getattr(result, self.pk_attname)
-        return reverse('admin:%s_%s_change' % (self.opts.app_label,
-                                               self.opts.model_name),
-                       args=(quote(pk),),
-                       current_app=self.model_admin.admin_site.name)
+        url_name = 'admin:%s_%s_change' % (
+            self.opts.app_label,
+            self.opts.model_name
+        )
+        return reverse(
+            url_name,
+            args=(quote(pk),),
+            current_app=self.model_admin.admin_site.name
+        )
+
+    def get_selection_note(self):
+        return ugettext('0 of %(cnt)s selected') % {
+            'cnt': len(self.result_list)
+        }
+
+    def get_selection_note_all(self):
+        selection_note_all = ungettext(
+            '%(total_count)s selected',
+            'All %(total_count)s selected',
+            self.result_count
+        )
+        return selection_note_all % {'total_count': self.result_count}
+
+    @property
+    def show_result_count(self):
+        return self.result_count != self.full_result_count
+
+
+class NoCountChangeList(ChangeList):
+    no_count_pagination = True
+
+    @property
+    def can_show_all(self):
+        return False
+
+    @property
+    def result_count(self):
+        return 10
+
+    @property
+    def full_result_count(self):
+        return 15
+
+    @property
+    def show_result_count(self):
+        return False
+
+    def get_paginator(self, request, queryset):
+        return NoCountPaginator(queryset, self.list_per_page)
+
+    def get_selection_note_all(self):
+        return ugettext('Everything selected')

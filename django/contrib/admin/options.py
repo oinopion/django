@@ -19,7 +19,7 @@ from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.contrib.auth import get_permission_codename
 from django.core import checks
 from django.core.exceptions import PermissionDenied, ValidationError, FieldError, ImproperlyConfigured
-from django.core.paginator import Paginator
+from django.core.paginator import Paginator, NoCountPaginator
 from django.core.urlresolvers import reverse
 from django.db import models, transaction, router
 from django.db.models.constants import LOOKUP_SEP
@@ -1539,14 +1539,11 @@ class ModelAdmin(BaseModelAdmin):
         else:
             action_form = None
 
-        selection_note_all = ungettext('%(total_count)s selected',
-            'All %(total_count)s selected', cl.result_count)
-
         context = dict(
             self.admin_site.each_context(),
             module_name=force_text(opts.verbose_name_plural),
-            selection_note=_('0 of %(cnt)s selected') % {'cnt': len(cl.result_list)},
-            selection_note_all=selection_note_all % {'total_count': cl.result_count},
+            selection_note=cl.get_selection_note(),
+            selection_note_all=cl.get_selection_note_all(),
             title=cl.title,
             is_popup=cl.is_popup,
             to_field=cl.to_field,
